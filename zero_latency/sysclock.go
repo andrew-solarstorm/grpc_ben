@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 
 	"github.com/andrew-solarstorm/yellowstone-grpc-client-go"
 	pb "github.com/andrew-solarstorm/yellowstone-grpc-client-go/proto"
@@ -35,6 +36,7 @@ func decodeClock(data []byte) (*SysVarClock, error) {
 
 type SystemClock struct {
 	cli   *yellowstone.GeyserGrpcClient
+	mu    sync.Mutex
 	slots *lru.Cache[uint64, int64]
 }
 
@@ -97,7 +99,8 @@ func (svc *SystemClock) subscribe(endpoint, token string, commitment *pb.Commitm
 			if err != nil {
 				return nil
 			}
-
+			svc.mu.Lock()
+			defer svc.mu.Unlock()
 			if _, ok := svc.slots.Get(clock.Slot); !ok {
 				svc.slots.Add(clock.Slot, clock.UnixTimestamp)
 			}
