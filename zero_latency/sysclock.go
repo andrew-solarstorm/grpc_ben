@@ -100,10 +100,10 @@ func (svc *SystemClock) subscribe(endpoint, token string, commitment *pb.Commitm
 				return nil
 			}
 			svc.mu.Lock()
-			defer svc.mu.Unlock()
 			if _, ok := svc.slots.Get(clock.Slot); !ok {
 				svc.slots.Add(clock.Slot, clock.UnixTimestamp)
 			}
+			svc.mu.Unlock()
 
 		default:
 			return nil
