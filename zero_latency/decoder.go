@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"time"
@@ -82,10 +83,12 @@ func (svc *Decoder) decodeTransfer(args *TxExtractArgs, ixAccounts []uint16, ixD
 	}
 	amount := binary.LittleEndian.Uint64(ixData[:8])
 
+	mint := args.AccToMintMap[source]
+
 	transfer := Transfer{
 		From:               args.AccToOwnerMap[source].String(),
 		To:                 args.AccToOwnerMap[destination].String(),
-		Mint:               args.AccToMintMap[source].String(),
+		Mint:               mint.String(),
 		Amount:             amount,
 		Signature:          args.Transaction.Signature.String(),
 		Slot:               args.Transaction.Slot,
@@ -94,7 +97,10 @@ func (svc *Decoder) decodeTransfer(args *TxExtractArgs, ixAccounts []uint16, ixD
 		ServerReceivedTime: args.TxContext.ServerReceivedTime.UnixMicro(),
 		DecodedTime:        time.Now().UnixMicro(),
 	}
-
+	if bytes.Equal(mint[:], solana.SolMint[:]) {
+		transfer.From = source.String()
+		transfer.To = destination.String()
+	}
 	return &transfer, nil
 }
 
@@ -130,6 +136,10 @@ func (svc *Decoder) decodeTransferChecked(args *TxExtractArgs, ixAccounts []uint
 		GeyserSentTime:     args.TxContext.GeyserSentTime.UnixMicro(),
 		ServerReceivedTime: args.TxContext.ServerReceivedTime.UnixMicro(),
 		DecodedTime:        time.Now().UnixMicro(),
+	}
+	if bytes.Equal(mint[:], solana.SolMint[:]) {
+		transfer.From = source.String()
+		transfer.To = destination.String()
 	}
 
 	return &transfer, nil

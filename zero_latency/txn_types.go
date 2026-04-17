@@ -230,7 +230,15 @@ func processTx(tx *TransactionInfo) *TxExtractArgs {
 	accToOwnerMap := make(map[solana.PublicKey]solana.PublicKey)
 
 	for _, inner := range tx.Meta.InnerInstructions {
-		instructions = append(instructions, inner.Instructions...)
+		for _, ix := range inner.Instructions {
+			if ix.ProgramIDIndex >= uint16(len(accountKeys)) {
+				continue
+			}
+			programID := accountKeys[ix.ProgramIDIndex]
+			if programID.Equals(solana.TokenProgramID) {
+				instructions = append(instructions, ix)
+			}
+		}
 	}
 
 	preBalances := make(map[uint16]rpc.TokenBalance)

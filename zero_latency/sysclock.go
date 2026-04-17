@@ -2,10 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"sync/atomic"
-	"time"
 
 	"github.com/andrew-solarstorm/yellowstone-grpc-client-go"
 	pb "github.com/andrew-solarstorm/yellowstone-grpc-client-go/proto"
@@ -98,7 +96,7 @@ func (svc *SystemClock) subscribe(endpoint, token string, commitment *pb.Commitm
 				return nil
 			}
 
-			fmt.Printf("UnixTimestamp: %d arrived %d \n", clock.UnixTimestamp, time.Now().UnixMilli())
+			// fmt.Printf("UnixTimestamp: %d arrived %d \n", clock.UnixTimestamp, time.Now().UnixMilli())
 
 			svc.currentTimestamp.Store(clock.UnixTimestamp)
 

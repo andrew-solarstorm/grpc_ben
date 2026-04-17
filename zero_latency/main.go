@@ -47,13 +47,17 @@ func main() {
 		return
 	}
 
+	checker := NewSanityChecker()
+
+	blockIngest := NewBlockService(checker)
 	commitment := getCommitmentLevel(commitmentStr)
 	clock := NewSysClock()
 	clock.subscribe(endpoint, token, commitment)
 	wsSvc := NewWSService()
 	decSvc := NewTransferDecService(wsSvc)
-	txIngest := NewTxIngestService(clock, decSvc)
+	txIngest := NewTxIngestService(clock, decSvc, checker)
 	txIngest.Subscribe(endpoint, token, commitment)
+	blockIngest.Subscribe(endpoint, token, commitment)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -79,6 +83,7 @@ func main() {
 	defer cancel()
 	_ = httpSrv.Shutdown(shutdownCtx)
 	txIngest.Close()
+	blockIngest.Close()
 	decSvc.Close()
 	clock.Close()
 	fmt.Println("✅ Transaction subscription example completed")

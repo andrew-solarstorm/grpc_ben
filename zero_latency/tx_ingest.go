@@ -12,15 +12,17 @@ import (
 )
 
 type TxIngestService struct {
-	decSvc *Decoder
-	clock  *SystemClock
-	cli    *yellowstone.GeyserGrpcClient
+	decSvc  *Decoder
+	clock   *SystemClock
+	checker *SanityChecker
+	cli     *yellowstone.GeyserGrpcClient
 }
 
-func NewTxIngestService(clock *SystemClock, decSvc *Decoder) *TxIngestService {
+func NewTxIngestService(clock *SystemClock, decSvc *Decoder, checker *SanityChecker) *TxIngestService {
 	return &TxIngestService{
-		decSvc: decSvc,
-		clock:  clock,
+		decSvc:  decSvc,
+		clock:   clock,
+		checker: checker,
 	}
 }
 
@@ -77,6 +79,7 @@ func (svc *TxIngestService) Subscribe(endpoint, token string, commitment *pb.Com
 				Slot:               txUpdate.Slot,
 			}
 
+			svc.checker.Check(txUpdate.Slot, svc.clock.TimeStamp(), "TXN")
 			svc.decSvc.Queue(&txCtx)
 		default:
 			return nil
