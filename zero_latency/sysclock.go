@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"log"
-	"sync/atomic"
 
 	"github.com/andrew-solarstorm/yellowstone-grpc-client-go"
 	pb "github.com/andrew-solarstorm/yellowstone-grpc-client-go/proto"
 	bin "github.com/gagliardetto/binary"
 	"github.com/gagliardetto/solana-go"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // ref: https://docs.rs/solana-program/latest/solana_program/sysvar/clock/struct.Clock.html
@@ -34,18 +34,20 @@ func decodeClock(data []byte) (*SysVarClock, error) {
 }
 
 type SystemClock struct {
-	cli              *yellowstone.GeyserGrpcClient
-	currentTimestamp *atomic.Int64
+	cli   *yellowstone.GeyserGrpcClient
+	slots *lru.Cache[uint64, int64]
 }
 
 func NewSysClock() *SystemClock {
+	cache, _ := lru.New[uint64, int64](30)
 	return &SystemClock{
-		currentTimestamp: new(atomic.Int64),
+		slots: cache,
 	}
 }
 
-func (svc *SystemClock) TimeStamp() int64 {
-	return svc.currentTimestamp.Load()
+func (svc *SystemClock) TimeStamp(slot uint64) int64 {
+	slotTime, _ := svc.slots.Get(slot)
+	return slotTime
 }
 
 func (svc *SystemClock) Close() {
@@ -96,9 +98,9 @@ func (svc *SystemClock) subscribe(endpoint, token string, commitment *pb.Commitm
 				return nil
 			}
 
-			// fmt.Printf("UnixTimestamp: %d arrived %d \n", clock.UnixTimestamp, time.Now().UnixMilli())
-
-			svc.currentTimestamp.Store(clock.UnixTimestamp)
+			if _, ok := svc.slots.Get(clock.Slot); !ok {
+				svc.slots.Add(clock.Slot, clock.UnixTimestamp)
+			}
 
 		default:
 			return nil

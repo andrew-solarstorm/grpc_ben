@@ -75,11 +75,11 @@ func (svc *TxIngestService) Subscribe(endpoint, token string, commitment *pb.Com
 				GeyserSentTime:     update.CreatedAt.AsTime(),
 				ServerReceivedTime: arrived,
 				Upd:                txUpdate,
-				BlockTime:          svc.clock.TimeStamp(),
+				BlockTime:          svc.clock.TimeStamp(txUpdate.Slot),
 				Slot:               txUpdate.Slot,
 			}
 
-			svc.checker.Check(txUpdate.Slot, svc.clock.TimeStamp(), "TXN")
+			svc.checker.Check(txUpdate.Slot, txCtx.BlockTime, "TXN")
 			svc.decSvc.Queue(&txCtx)
 		default:
 			return nil
