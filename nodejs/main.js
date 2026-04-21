@@ -2,7 +2,7 @@ const Client = require("@triton-one/yellowstone-grpc").default;
 const { CommitmentLevel } = require("@triton-one/yellowstone-grpc");
 const args = require("minimist")(process.argv.slice(2));
 
-const GRPC_URL = args.url || "http://10.0.0.250:10000";
+const GRPC_URL = args.url || "http://localhost:10000";
 const GRPC_TOKEN = args.token || "";
 const COMMITMENT = CommitmentLevel[args.commitment?.toUpperCase()] ?? CommitmentLevel.PROCESSED;
 const PROGRAM_IDS = [

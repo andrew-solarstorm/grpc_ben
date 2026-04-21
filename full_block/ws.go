@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"sync"
 	"time"
 
@@ -12,7 +13,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var upgrader = websocket.Upgrader{}
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
 
 type Client struct {
 	ID   uuid.UUID
@@ -121,7 +128,7 @@ func NewWSService() *WebsocketService {
 }
 
 func (svc *WebsocketService) Handler(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, c.Request.Header)
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
 	}

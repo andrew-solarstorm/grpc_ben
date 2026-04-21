@@ -21,6 +21,10 @@ const getNowUs = () => {
 
 const ws = new WebSocket(wsURL);
 
+let highestBlockLagMs = -Infinity;
+let lowestBlockLagMs = Infinity;
+let messagesReceived = 0;
+
 ws.on('open', () => {
   ws.send(JSON.stringify({ action: 0, mint }));
   console.log(`Connected & Subscribed: ${mint}`);
@@ -45,6 +49,12 @@ ws.on('message', (data) => {
     const blockDelayMs = nowMs - blockTimeMs;
     const blockDelaySec = Math.floor(blockDelayMs / 1000);
 
+    if (blockDelayMs >= 0) {
+      if (blockDelayMs > highestBlockLagMs) highestBlockLagMs = blockDelayMs;
+      if (blockDelayMs < lowestBlockLagMs) lowestBlockLagMs = blockDelayMs;
+    }
+    messagesReceived++;
+
     // 3. Decode Time (Decoded - Received)
     const decodeTimeMs = Number(decodedUs - receivedUs) / 1000;
 
@@ -67,6 +77,14 @@ ws.on('message', (data) => {
 });
 
 const handleExit = () => {
+  if (messagesReceived > 0) {
+    console.log(`\n=== Session Summary ===`);
+    const displayHighest = highestBlockLagMs === -Infinity ? 'N/A' : highestBlockLagMs.toLocaleString();
+    const displayLowest = lowestBlockLagMs === Infinity ? 'N/A' : lowestBlockLagMs.toLocaleString();
+    console.log(`Highest Block Lag: ${displayHighest} ms`);
+    console.log(`Lowest Block Lag:  ${displayLowest} ms`);
+    console.log(`=======================\n`);
+  }
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ action: 1, mint }));
     ws.close();

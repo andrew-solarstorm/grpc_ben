@@ -82,7 +82,6 @@ class Decoder {
             }
 
             if (transferEvent) {
-                console.log("Transfer event:", transferEvent);
                 this.wsSvc.send(transferEvent.mint_address, transferEvent);
             }
         }
@@ -113,7 +112,7 @@ class Decoder {
             mint_address: mint,
             transaction_signature: signature,
             slot: parseInt(slot, 10),
-            block_time: Math.floor(Number(blockMetaTime || 0) / 1000000),
+            block_time: blockTime,
             first_tx_time: Number(firstTxTime || 0),
             block_meta_time: Number(blockMetaTime || 0),
             ws_sent_time: Date.now() * 1000,
@@ -144,7 +143,7 @@ class Decoder {
             mint_address: mint,
             transaction_signature: signature,
             slot: parseInt(slot, 10),
-            block_time: Math.floor(Number(blockMetaTime || 0) / 1000000),
+            block_time: blockTime,
             first_tx_time: Number(firstTxTime || 0),
             block_meta_time: Number(blockMetaTime || 0),
             ws_sent_time: Date.now() * 1000,

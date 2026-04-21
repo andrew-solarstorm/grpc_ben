@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
-	"time"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	yellowstone "github.com/andrew-solarstorm/yellowstone-grpc-client-go"
 	pb "github.com/andrew-solarstorm/yellowstone-grpc-client-go/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 var PROGRAM_IDS = []string{
@@ -98,16 +103,48 @@ var PROGRAM_IDS = []string{
 	"1qbkdrr3z4ryLA7pZykqxvxWPoeifcVKo6ZG9CfkvVE",
 }
 
-type BlockIngestionService struct {
-	cli *yellowstone.GeyserGrpcClient
+func main() {
+	var endpoint, token, commitmentStr, httpAddr string
 
-	dec *Decoder
+	flag.StringVar(&endpoint, "endpoint", "http://localhost:10000", "grpc server url")
+	flag.StringVar(&token, "token", "", "auth token")
+	flag.Parse()
+
+	if httpAddr != "" {
+		// Allow common shorthands:
+		// - "8080"  => "0.0.0.0:8080"
+		// - ":8080" => "0.0.0.0:8080"
+		if !strings.Contains(httpAddr, ":") {
+			httpAddr = "0.0.0.0:" + httpAddr
+		} else if strings.HasPrefix(httpAddr, ":") {
+			httpAddr = "0.0.0.0" + httpAddr
+		}
+	}
+
+	fmt.Printf("ENDPOINT: %s TOKEN: %s CommitmentLevel: %s HTTP: %s\n", endpoint, token, commitmentStr, httpAddr)
+
+	if token == "" {
+		fmt.Println("ERR: token is not set")
+		return
+	}
+
+	blck := BlockIngestionService{}
+	blck.Subscribe(endpoint, token, pb.CommitmentLevel_PROCESSED.Enum())
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	<-sigChan
+
+	blck.Close()
+	fmt.Println("✅ block_pulling completed")
 }
 
-func NewBlockIngestionService(dec *Decoder) *BlockIngestionService {
-	return &BlockIngestionService{
-		dec: dec,
-	}
+type BlockIngestionService struct {
+	cli *yellowstone.GeyserGrpcClient
+}
+
+func NewBlockIngestionService() *BlockIngestionService {
+	return &BlockIngestionService{}
 }
 
 func (svc *BlockIngestionService) Close() {
@@ -154,26 +191,8 @@ func (svc *BlockIngestionService) Subscribe(endpoint, token string, commitment *
 	go grpcClient.Start(stream, func(update *pb.SubscribeUpdate) error {
 		switch update.GetUpdateOneof().(type) {
 		case *pb.SubscribeUpdate_Block:
-			block := update.GetBlock()
-			now := time.Now()
-			delays := now.Sub(update.CreatedAt.AsTime())
-
-			fmt.Printf("Delays: %s \n", delays.String())
-
-			for _, tx := range block.GetTransactions() {
-				if tx == nil {
-					continue
-				}
-
-				txCtx := TxContext{
-					GeyserSentTime:     update.CreatedAt.AsTime(),
-					ServerReceivedTime: now,
-					Slot:               block.Slot,
-					BlockTx:            tx,
-					BlockTime:          block.BlockTime.Timestamp,
-				}
-				svc.dec.Queue(&txCtx)
-			}
+			size := proto.Size(update)
+			fmt.Println("Bytes: ", size)
 		default:
 			return nil
 		}

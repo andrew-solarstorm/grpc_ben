@@ -80,11 +80,11 @@ func main() {
 func getCommitmentLevel(commitment string) *pb.CommitmentLevel {
 	result := pb.CommitmentLevel_PROCESSED
 	switch commitment {
-	case "FINALIZED":
-		result = pb.CommitmentLevel_CONFIRMED
+	case "FINALIZED", "finalized":
+		result = pb.CommitmentLevel_FINALIZED
 		return &result
-	case "CONFIRMED":
-		result = pb.CommitmentLevel_PROCESSED
+	case "CONFIRMED", "confirmed":
+		result = pb.CommitmentLevel_CONFIRMED
 		return &result
 	}
 	return &result

@@ -1,13 +1,5 @@
-const Client = require("@triton-one/yellowstone-grpc").default;
-const { CommitmentLevel } = require("@triton-one/yellowstone-grpc");
-const WebsocketService = require("./ws.js");
-const Decoder = require("./decoder.js");
-const args = require("minimist")(process.argv.slice(2));
-
-const GRPC_URL = args.url || "http://10.0.0.250:10000";
-const GRPC_TOKEN = args.token || "";
-const COMMITMENT = CommitmentLevel[args.commitment?.toUpperCase()] ?? CommitmentLevel.PROCESSED;
-const WS_PORT = args.port || 8080;
+const yellowstone = require('@triton-one/yellowstone-grpc');
+const { TxContext } = require('./types');
 
 const PROGRAM_IDS = [
     "opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb",
@@ -94,123 +86,127 @@ const PROGRAM_IDS = [
     "waveQX2yP3H1pVU8djGvEHmYg8uamQ84AuyGtpsrXTF",
     "45iBNkaENereLKMjLm2LHkF3hpDapf6mnvrM5HWFg9cY",
     "REALQqNEomY6cQGZJUGwywTBD2UmDT32rZcNnfxQ5N2",
-    "1qbkdrr3z4ryLA7pZykqxvxWPoeifcVKo6ZG9CfkvVE",
+    "1qbkdrr3z4ryLA7pZykqxvxWPoeifcVKo6ZG9CfkvVE"
 ];
-// Map from slot (string or number) to tracking info
-const blocksTracker = new Map();
 
-// Initialize WS server and Decoder
-const wsSvc = new WebsocketService(WS_PORT);
-const decoder = new Decoder(wsSvc);
+class BlockIngestionService {
+    constructor(dec) {
+        this.dec = dec;
+        this.cli = null;
+        this.stream = null;
+    }
 
+    Close() {
+        if (this.stream) {
+            this.stream.cancel && this.stream.cancel();
+        }
+    }
 
-async function subscribe() {
-    const client = new Client(GRPC_URL, GRPC_TOKEN, {
-        "grpc.max_receive_message_length": 64 * 1024 * 1024,
-    });
-    console.log("endpoin", GRPC_URL, "token", GRPC_TOKEN, "commitment", COMMITMENT);
-
-
-    await client.connect();
-    console.log("Connected to Yellowstone GRPC:", GRPC_URL);
-
-
-    const stream = await client.subscribe();
-
-    stream.on("data", (data) => {
-        const nowUs = BigInt(Date.now()) * 1000n;
-
-        // 1. Check for transaction
-        if (data.transaction) {
-            const slot = data.transaction.slot;
-            if (slot) {
-                if (!blocksTracker.has(slot)) {
-                    blocksTracker.set(slot, {
-                        firstTxTime: nowUs,
-                        txCount: 1,
-                        transactions: [data.transaction.transaction],
-                    });
-                } else {
-                    const track = blocksTracker.get(slot);
-                    if (!track.firstTxTime) {
-                        track.firstTxTime = nowUs;
-                    }
-                    track.txCount++;
-                    track.transactions = track.transactions || [];
-                    track.transactions.push(data.transaction.transaction);
-                }
-            }
+    async Subscribe(endpoint, token, commitment) {
+        let commitmentLevel;
+        if (commitment === 'FINALIZED') {
+            commitmentLevel = yellowstone.CommitmentLevel.FINALIZED;
+        } else if (commitment === 'CONFIRMED') {
+            commitmentLevel = yellowstone.CommitmentLevel.CONFIRMED;
+        } else {
+            commitmentLevel = yellowstone.CommitmentLevel.PROCESSED;
         }
 
-        const m = data.blockmeta || data.blockMeta;
-        // 2. Check for block_meta
-        if (m) {
-            const slot = m.slot;
-            if (slot) {
+        try {
+            const client = new yellowstone.default(endpoint, token, {
+                "grpc.max_receive_message_length": 64 * 1024 * 1024,
+            });
+            this.cli = client;
+            await this.cli.connect()
 
-                let track = blocksTracker.get(slot);
-                if (!track) {
-                    track = {
-                        firstTxTime: 0,
-                        blockMetaTime: nowUs,
-                        txCount: 0,
-                        transactions: [],
-                        blockTime: Number(m.blockTime?.timestamp || 0)
-                    };
-                    blocksTracker.set(slot, track);
-                } else {
-                    track.blockTime = Number(m.blockTime?.timestamp || 0);
-                    track.blockMetaTime = nowUs;
+            this.stream = await client.subscribe();
+
+            const req = {
+                slots: {},
+                accounts: {},
+                transactions: {},
+                transactionsStatus: {},
+                entry: {},
+                blocksMeta: {},
+                accountsDataSlice: [],
+                ping: undefined,
+                blocks: {
+                    "block_filter": {
+                        accountInclude: PROGRAM_IDS,
+                        includeAccounts: false,
+                        includeEntries: false,
+                        includeTransactions: true
+                    }
+                },
+                commitment: commitmentLevel
+            };
+
+            await new Promise((resolve, reject) => {
+                this.stream.write(req, (err) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            });
+
+            console.log("Listening for block updates...");
+
+            this.stream.on('data', (update) => {
+                if (!update || !update.block) {
+                    return;
                 }
 
+                const block = update.block;
+                const now = new Date();
 
-                const delaysMs = track.firstTxTime ? Number(nowUs - track.firstTxTime) / 1000 : 0;
-                console.log(`Slot: ${slot} | Txs so far: ${track.txCount} | Time from first tx to block_meta: ${delaysMs}ms`);
+                const timestamp = update?.createdAt;
+                const slot = update?.block?.slot;
 
-                if (track.transactions && track.transactions.length > 0) {
-                    decoder.decodeBlock(slot, track.transactions, track.firstTxTime, track.blockMetaTime, track.blockTime);
-                }
+                if (!timestamp || !slot) return;
 
-                // Clean up slot
-                blocksTracker.delete(slot);
+                const delayMs = now - new Date(timestamp).getTime();
+                const delaySec = delayMs / 1000;
+                console.log(`Slot: ${slot} | Timestamp: ${timestamp} | Tx Count: ${update?.block?.transactions?.length} | Now: ${(now / 1000).toFixed(3)} | Delay: ${delaySec.toFixed(3)}s (${delayMs}ms)`);
 
-                // Also clean up old slots to prevent memory leak
-                for (const [s, data] of blocksTracker.entries()) {
-                    // If a slot has been tracked for > 30s we can probably delete it
-                    if (data.firstTxTime && nowUs - data.firstTxTime > 30000000n) {
-                        blocksTracker.delete(s);
+                if (block.transactions) {
+
+                    for (const tx of block.transactions) {
+                        if (!tx) continue;
+                        const arrived = now;
+                        const txCtx = new TxContext();
+                        txCtx.GeyserSentTime = timestamp;
+                        txCtx.ServerReceivedTime = arrived;
+                        txCtx.Slot = block.slot;
+                        txCtx.BlockTx = tx;
+
+                        let blockTimeTs = 0;
+                        if (block.blockTime && block.blockTime.timestamp !== undefined) {
+                            blockTimeTs = Number(block.blockTime.timestamp);
+                        }
+
+                        txCtx.BlockTime = blockTimeTs;
+                        this.dec.Queue(txCtx);
                     }
                 }
-            }
+            });
+
+            this.stream.on('error', (err) => {
+                console.error("Geyser stream error:", err);
+            });
+
+            this.stream.on('end', () => {
+                console.log("Geyser stream ended");
+            });
+
+        } catch (err) {
+            console.error("Error subscribing to geyser:", err);
+            throw err;
         }
-    });
-
-    // Subscribe to transactions AND block meta
-    const req = {
-        accounts: {},
-        slots: {},
-        transactions: {
-            txSub: {
-                accountInclude: PROGRAM_IDS,
-                accountExclude: [],
-                accountRequired: []
-            }
-        },
-        transactionsStatus: {},
-        entry: {},
-        blocks: {},
-        blocksMeta: {
-            metaSub: {}
-        },
-        accountsDataSlice: [],
-        ping: undefined,
-        commitment: CommitmentLevel.PROCESSED,
-    };
-
-    stream.write(req);
-    console.log("Subscribed to transactions and blockMeta stream...");
+    }
 }
 
-subscribe().catch((err) => {
-    console.error("Error subscribing:", err);
-});
+module.exports = {
+    BlockIngestionService
+};

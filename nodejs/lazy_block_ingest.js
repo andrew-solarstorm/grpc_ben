@@ -1,7 +1,6 @@
 const Client = require("@triton-one/yellowstone-grpc").default;
 const { CommitmentLevel } = require("@triton-one/yellowstone-grpc");
-const WebsocketService = require("./ws.js");
-const Decoder = require("./decoder.js");
+
 const args = require("minimist")(process.argv.slice(2));
 
 const GRPC_URL = args.url || "http://10.0.0.250:10000";
@@ -99,21 +98,16 @@ const PROGRAM_IDS = [
 // Map from slot (string or number) to tracking info
 const blocksTracker = new Map();
 
-// Initialize WS server and Decoder
-const wsSvc = new WebsocketService(WS_PORT);
-const decoder = new Decoder(wsSvc);
+
 
 
 async function subscribe() {
     const client = new Client(GRPC_URL, GRPC_TOKEN, {
         "grpc.max_receive_message_length": 64 * 1024 * 1024,
     });
-    console.log("endpoin", GRPC_URL, "token", GRPC_TOKEN, "commitment", COMMITMENT);
-
 
     await client.connect();
     console.log("Connected to Yellowstone GRPC:", GRPC_URL);
-
 
     const stream = await client.subscribe();
 
@@ -128,7 +122,6 @@ async function subscribe() {
                     blocksTracker.set(slot, {
                         firstTxTime: nowUs,
                         txCount: 1,
-                        transactions: [data.transaction.transaction],
                     });
                 } else {
                     const track = blocksTracker.get(slot);
@@ -136,8 +129,6 @@ async function subscribe() {
                         track.firstTxTime = nowUs;
                     }
                     track.txCount++;
-                    track.transactions = track.transactions || [];
-                    track.transactions.push(data.transaction.transaction);
                 }
             }
         }
@@ -154,22 +145,17 @@ async function subscribe() {
                         firstTxTime: 0,
                         blockMetaTime: nowUs,
                         txCount: 0,
-                        transactions: [],
-                        blockTime: Number(m.blockTime?.timestamp || 0)
+                        blockTime: m.blockTime?.timestamp
                     };
                     blocksTracker.set(slot, track);
                 } else {
-                    track.blockTime = Number(m.blockTime?.timestamp || 0);
+                    track.blockTime = m.blockTime?.timestamp;
                     track.blockMetaTime = nowUs;
                 }
 
-
                 const delaysMs = track.firstTxTime ? Number(nowUs - track.firstTxTime) / 1000 : 0;
-                console.log(`Slot: ${slot} | Txs so far: ${track.txCount} | Time from first tx to block_meta: ${delaysMs}ms`);
-
-                if (track.transactions && track.transactions.length > 0) {
-                    decoder.decodeBlock(slot, track.transactions, track.firstTxTime, track.blockMetaTime, track.blockTime);
-                }
+                const blockTimeStr = track.blockTime ? new Date(Number(track.blockTime) * 1000).toISOString() : 'N/A';
+                console.log(`Slot: ${slot} | Txs so far: ${track.txCount} | Time from first tx to block_meta: ${delaysMs}ms | block_time: ${track.blockTime} (${blockTimeStr})`);
 
                 // Clean up slot
                 blocksTracker.delete(slot);
@@ -204,7 +190,7 @@ async function subscribe() {
         },
         accountsDataSlice: [],
         ping: undefined,
-        commitment: CommitmentLevel.PROCESSED,
+        commitment: COMMITMENT,
     };
 
     stream.write(req);
