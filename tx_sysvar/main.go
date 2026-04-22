@@ -61,9 +61,10 @@ func main() {
 		clock:    sysClock,
 		blockSvc: blockBuilder,
 	}
-
+	blockMeta := NewBlockMeta(buff)
 	ingest := NewTxIngestService(buff)
 	ingest.Subscribe(endpoint, token, commitment)
+	blockMeta.Subscribe(endpoint, token, commitment)
 
 	router := gin.New()
 	router.Use(gin.Recovery())
@@ -88,6 +89,7 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	ingest.Close()
+	blockMeta.Close()
 	httpSrv.Shutdown(shutdownCtx)
 	fmt.Println("✅ block_pulling completed")
 }

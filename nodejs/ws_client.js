@@ -1,0 +1,90 @@
+const WebSocket = require('ws');
+const minimist = require('minimist');
+
+const args = minimist(process.argv.slice(2), {
+  string: ['ws', 'mint'],
+  default: { ws: 'ws://localhost:8080/ws' }
+});
+
+const { ws: wsURL, mint } = args;
+
+if (!mint) {
+  console.error('ERR: --mint is required');
+  process.exit(2);
+}
+
+const getNowUs = () => {
+  return BigInt(Date.now()) * 1000n;
+};
+
+const ws = new WebSocket(wsURL);
+
+let highestBlockLagMs = -Infinity;
+let lowestBlockLagMs = Infinity;
+let messagesReceived = 0;
+
+ws.on('open', () => {
+  ws.send(JSON.stringify({ action: 0, mint }));
+  console.log(`Connected & Subscribed: ${mint}`);
+});
+
+ws.on('message', (data) => {
+  try {
+    const t = JSON.parse(data);
+    const nowUs = getNowUs();
+
+    const wsSentUs = BigInt(t.ws_sent_time);
+    const decodedUs = BigInt(t.decoded_time);
+    const receivedUs = BigInt(t.server_received_time);
+
+    const wsToClientMs = Number(nowUs - wsSentUs) / 1000;
+
+    const nowMs = Number(nowUs / 1000n);
+    const blockTimeMs = t.block_time * 1000;
+    const blockDelayMs = nowMs - blockTimeMs;
+    const blockDelaySec = Math.floor(blockDelayMs / 1000);
+
+    if (blockDelayMs >= 0) {
+      if (blockDelayMs > highestBlockLagMs) highestBlockLagMs = blockDelayMs;
+      if (blockDelayMs < lowestBlockLagMs) lowestBlockLagMs = blockDelayMs;
+    }
+    messagesReceived++;
+
+    const decodeTimeMs = Number(decodedUs - receivedUs) / 1000;
+
+    console.log(`--- Transfer: ${t.transaction_signature} ---`);
+    console.log(`From:      ${t.from}`);
+    console.log(`To:        ${t.to}`);
+    console.log(`Amount:    ${t.amount} | Mint: ${t.mint_address}`);
+    console.log(`Slot:      ${t.slot} | Blocktime: ${t.block_time}`);
+    const displayWsLag = wsToClientMs < 0 ? "0.000*" : wsToClientMs.toFixed(3);
+
+    console.log(`  WS -> Client:   ${displayWsLag} ms ${wsToClientMs < 0 ? '(Clock Jitter)' : ''}`);
+    console.log(`  Decode Time:    ${decodeTimeMs.toFixed(3)} ms`);
+    console.log(`  Block Lag:      ${blockDelayMs.toLocaleString()} ms (${blockDelaySec}s)`);
+    console.log(`------------------------------------------------\n`);
+
+  } catch (err) {
+    console.error('Error processing message:', err.message);
+  }
+});
+
+const handleExit = () => {
+  if (messagesReceived > 0) {
+    console.log(`\n=== Session Summary ===`);
+    const displayHighest = highestBlockLagMs === -Infinity ? 'N/A' : highestBlockLagMs.toLocaleString();
+    const displayLowest = lowestBlockLagMs === Infinity ? 'N/A' : lowestBlockLagMs.toLocaleString();
+    console.log(`Highest Block Lag: ${displayHighest} ms`);
+    console.log(`Lowest Block Lag:  ${displayLowest} ms`);
+    console.log(`=======================\n`);
+  }
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ action: 1, mint }));
+    ws.close();
+  }
+  process.exit();
+};
+
+process.on('SIGINT', handleExit);
+process.on('SIGTERM', handleExit);
+ws.on('error', (err) => console.error('WS Error:', err.message));

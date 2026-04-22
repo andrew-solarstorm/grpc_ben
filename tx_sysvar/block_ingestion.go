@@ -30,6 +30,7 @@ func BlockFormer(dec *Decoder) *BlockBuilder {
 func (b *BlockBuilder) Queue(block *LocalBlock) {
 	b.ch <- block
 }
+
 func (b *BlockBuilder) worker() {
 	for block := range b.ch {
 		now := time.Now()
